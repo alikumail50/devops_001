@@ -1,0 +1,75 @@
+pipeline {
+    agent any
+
+    environment {
+        // AWS and ECR configuration
+        AWS_ACCOUNT_ID = '123456789012' // Replace with your actual AWS account ID
+        AWS_REGION = 'us-east-1' // Replace with your preferred AWS region
+        ECR_REPOSITORY = 'ali-ecr-repo' // Your ECR repository name
+        ECS_CLUSTER = 'ali-ecs-cluster' // Your ECS cluster name
+        ECS_SERVICE = 'ali-ecs-service' // Your ECS service name
+        DOCKER_IMAGE = "${ECR_REPOSITORY}:${env.BUILD_ID}" // Dynamic Docker image tag
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                // Pull the latest code from the main branch
+                git branch: 'main', url: 'https://github.com/alikumail50/devops_001.git' 
+            }
+        }
+
+        stage('Lint and Unit Test') {
+            steps {
+                // Install dependencies, run linting, and execute unit tests
+                sh 'npm install' 
+                sh 'npm run lint'
+                sh 'npm test' 
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build the Docker image with the current BUILD_ID as the tag
+                    docker.build(DOCKER_IMAGE)
+                }
+            }
+        }
+
+        stage('Push Docker Image to ECR') {
+            steps {
+                script {
+                    // Log in to AWS ECR
+                    sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+                    
+                    // Tag the Docker image for ECR
+                    sh "docker tag ${DOCKER_IMAGE} ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${DOCKER_IMAGE}"
+                    
+                    // Push the Docker image to ECR
+                    sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${DOCKER_IMAGE}"
+                }
+            }
+        }
+
+        stage('Deploy to ECS') {
+            steps {
+                script {
+                    // Force a new deployment of the ECS service
+                    sh "aws ecs update-service --cluster ${ECS_CLUSTER} --service ${ECS_SERVICE} --force-new-deployment --region ${AWS_REGION}"
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            // Notify on successful pipeline completion
+            echo '🎉 Pipeline completed successfully! Time for a coffee break, ☕'
+        }
+        failure {
+            // Notify on pipeline failure
+            echo '❌ Pipeline failed! Check the logs and fix the issue. You got this! 💪'
+        }
+    }
+}
